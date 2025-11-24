@@ -191,31 +191,91 @@ class EnhancedMovieRecommender:
         print(f"KNN Hit Rate: {accuracy:.3f}")
         return accuracy
 
-    # Your original methods (maintained for app.py compatibility)
+    # FIXED Mood-Based Recommendations
     def get_mood_recommendations(self, mood, top_n=10):
-        mood_filters = {
-            'funny': ['Comedy', 'Animation'],
-            'romantic': ['Romance', 'Drama'],
-            'action': ['Action', 'Adventure', 'Thriller'],
-            'drama': ['Drama', 'Romance'],
-            'scary': ['Horror', 'Thriller'],
-            'mind_bending': ['Sci-Fi', 'Mystery', 'Thriller'],
-            'family': ['Children', 'Family', 'Animation'],
-            'inspirational': ['Drama', 'Biography']
-        }
+        """Mood-specific recommendations with exclusive genre matching"""
         
-        if mood not in mood_filters:
+        if mood == 'funny':
+            # Focus on pure comedies and animations
+            mood_movies = self.movies_with_stats[
+                (self.movies_with_stats['genres'].str.contains('Comedy')) &
+                (~self.movies_with_stats['genres'].str.contains('Drama|Horror|Thriller'))
+            ]
+        
+        elif mood == 'romantic':
+            # Focus on romance-focused movies
+            mood_movies = self.movies_with_stats[
+                (self.movies_with_stats['genres'].str.contains('Romance')) &
+                (self.movies_with_stats['genres'].str.split('|').str[0].isin(['Romance', 'Comedy']))
+            ]
+        
+        elif mood == 'action':
+            # Action should be primary genre
+            mood_movies = self.movies_with_stats[
+                self.movies_with_stats['genres'].str.split('|').str[0].isin(['Action', 'Adventure'])
+            ]
+        
+        elif mood == 'scary':
+            # Horror should be primary genre
+            mood_movies = self.movies_with_stats[
+                self.movies_with_stats['genres'].str.split('|').str[0] == 'Horror'
+            ]
+        
+        elif mood == 'drama':
+            # Drama as primary genre
+            mood_movies = self.movies_with_stats[
+                self.movies_with_stats['genres'].str.split('|').str[0] == 'Drama'
+            ]
+        
+        elif mood == 'mind_bending':
+            # Sci-Fi or Mystery as primary genre
+            mood_movies = self.movies_with_stats[
+                self.movies_with_stats['genres'].str.split('|').str[0].isin(['Sci-Fi', 'Mystery'])
+            ]
+        
+        elif mood == 'family':
+            # Family or Children as primary genre
+            mood_movies = self.movies_with_stats[
+                self.movies_with_stats['genres'].str.split('|').str[0].isin(['Family', 'Children'])
+            ]
+        
+        elif mood == 'inspirational':
+            # Biography as primary genre
+            mood_movies = self.movies_with_stats[
+                self.movies_with_stats['genres'].str.split('|').str[0] == 'Biography'
+            ]
+        
+        else:
             return self.get_popular_movies(top_n)
         
-        target_genres = mood_filters[mood]
-        mood_movies = self.movies_with_stats[
-            self.movies_with_stats['genres'].str.contains('|'.join(target_genres))
-        ]
-        
+        # Apply popularity and rating filters
         popular_mood_movies = mood_movies[
             (mood_movies['rating_count'] >= 10) & 
             (mood_movies['rating_mean'] >= 3.0)
         ].sort_values('weighted_score', ascending=False)
+        
+        # If not enough results, fallback to less strict filtering
+        if len(popular_mood_movies) < top_n:
+            mood_filters = {
+                'funny': ['Comedy', 'Animation'],
+                'romantic': ['Romance'],
+                'action': ['Action', 'Adventure'],
+                'drama': ['Drama'],
+                'scary': ['Horror', 'Thriller'],
+                'mind_bending': ['Sci-Fi', 'Mystery'],
+                'family': ['Family', 'Children'],
+                'inspirational': ['Biography', 'Drama']
+            }
+            if mood in mood_filters:
+                target_genres = mood_filters[mood]
+                genre_filter = '|'.join(target_genres)
+                mood_movies_fallback = self.movies_with_stats[
+                    self.movies_with_stats['genres'].str.contains(genre_filter)
+                ]
+                popular_mood_movies = mood_movies_fallback[
+                    (mood_movies_fallback['rating_count'] >= 10) & 
+                    (mood_movies_fallback['rating_mean'] >= 3.0)
+                ].sort_values('weighted_score', ascending=False)
         
         return popular_mood_movies.head(top_n)
     
@@ -359,6 +419,16 @@ def train_and_save_models():
         knn_recs = recommender.knn_recommend_for_user(sample_user, 3)
         for _, movie in knn_recs.iterrows():
             print(f"  - {movie['title']} (Rating: {movie['rating_mean']})")
+    
+    # Test mood recommendations
+    print(f"\nMood Recommendations Test:")
+    test_moods = ['funny', 'romantic', 'action', 'scary']
+    for mood in test_moods:
+        mood_recs = recommender.get_mood_recommendations(mood, 2)
+        print(f"  {mood.capitalize()}: {len(mood_recs)} movies")
+        if len(mood_recs) > 0:
+            for _, movie in mood_recs.iterrows():
+                print(f"    - {movie['title']} ({movie['genres']})")
     
     # Save all models as PKL files
     print("\nSaving models...")
